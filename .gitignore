@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+venv/
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Build
+build/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PM2
+.pm2/
+
+# Wrangler/Cloudflare (if present)
+.wrangler/
+
+# Artifacts
+outputs/
