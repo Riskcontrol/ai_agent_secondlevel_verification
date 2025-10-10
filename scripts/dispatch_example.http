@@ -1,0 +1,18 @@
+# Example cURL to trigger GitHub Action
+# Replace OWNER/REPO and TOKEN
+
+curl -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://api.github.com/repos/OWNER/REPO/dispatches \
+  -d '{
+    "event_type": "process_pdf",
+    "client_payload": {
+      "source_url": "https://your-cpanel-public-url/file.pdf",
+      "original_filename": "file.pdf",
+      "session": "2021/2022",
+      "callback_url": "https://your-app.com/api/github/callback",
+      "result_upload_url": "https://your-app.com/api/github/upload-results",
+      "doc_id": "123"
+    }
+  }'
