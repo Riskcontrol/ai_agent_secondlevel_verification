@@ -1,0 +1,43 @@
+:root{
+  --rcs-green:#32CD32; /* Apple per Brandfetch */
+  --rcs-green-light:#90EE90; /* LightGreen */
+  --rcs-dark:#0b1f14;
+  --rcs-bg:#f7fbf7;
+  --muted:#667085;
+  --danger:#d92d20;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;background:var(--rcs-bg);color:#111}
+.container{max-width:1100px;margin:0 auto;padding:0 16px}
+
+.rcs-header{background:linear-gradient(90deg,var(--rcs-green),var(--rcs-green-light));color:#0a2912;padding:16px 0;border-bottom:4px solid #22b022}
+.brand{display:flex;align-items:center;gap:12px}
+.logo-circle{width:42px;height:42px;border-radius:50%;background:#0a2912;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.brand-text h1{margin:0;font-size:18px}
+.brand-text p{margin:0;font-size:12px;opacity:.9}
+
+main{padding:24px 0}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:20px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+
+.form-row{display:flex;flex-direction:column;margin-bottom:12px}
+.form-row label{font-weight:600;margin-bottom:6px}
+input[type="text"], input[type="file"]{padding:10px 12px;border:1px solid #d0d5dd;border-radius:8px;outline:none}
+input:focus{border-color:var(--rcs-green)}
+
+.btn{border:none;border-radius:8px;padding:10px 14px;font-weight:600;cursor:pointer}
+.btn-primary{background:var(--rcs-green);color:#0a2912}
+.btn-danger{background:var(--danger);color:#fff}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+
+.table-wrap{overflow:auto}
+.table{width:100%;border-collapse:collapse;font-size:14px}
+.table th,.table td{padding:10px;border-bottom:1px solid #f0f2f5;text-align:left}
+.table th{background:#f9fafb;color:#111}
+.muted{color:var(--muted);font-size:13px;margin-top:6px}
+
+.grid{display:grid;gap:8px}
+.grid-4{grid-template-columns: 1fr 1fr 1fr 1fr}
+@media (max-width:768px){.grid-4{grid-template-columns:1fr 1fr}}
+
+.rcs-footer{padding:24px 0;text-align:center;color:#234a30}
