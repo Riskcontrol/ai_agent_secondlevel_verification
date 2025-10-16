@@ -9,50 +9,53 @@ function $(sel){ return document.querySelector(sel) }
 function el(tag, attrs={}){ const e=document.createElement(tag); Object.assign(e, attrs); return e }
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('#year').textContent = new Date().getFullYear()
+  const y = document.getElementById('year'); if (y) y.textContent = new Date().getFullYear();
   loadDocs()
 
-  $('#uploadForm').addEventListener('submit', async (e) => {
+  const up = $('#uploadForm');
+  if (up) up.addEventListener('submit', async (e) => {
     e.preventDefault()
     const f = $('#file').files[0]
     if (!f) return
     const fd = new FormData()
     fd.append('file', f)
-    if ($('#session').value) fd.append('session', $('#session').value)
+    if ($('#session')?.value) fd.append('session', $('#session').value)
 
-    $('#uploadMsg').textContent = 'Uploading...'
+    const msg = $('#uploadMsg'); if (msg) msg.textContent = 'Uploading...'
     try {
       const r = await fetch(API.upload, { method:'POST', body: fd })
-      const j = await r.json()
-      $('#uploadMsg').textContent = 'Queued for processing. Refresh documents shortly.'
+      await r.json()
+      if (msg) msg.textContent = 'Queued for processing. Refresh documents shortly.'
       loadDocs()
     } catch(err){
-      $('#uploadMsg').textContent = 'Upload failed.'
+      if (msg) msg.textContent = 'Upload failed.'
     }
   })
 
-  $('#deleteAllBtn').addEventListener('click', async () => {
+  const del = $('#deleteAllBtn');
+  if (del) del.addEventListener('click', async () => {
     if (!confirm('Delete ALL PDFs and extracted data?')) return
     await fetch(API.delAll, { method: 'DELETE' })
     loadDocs()
   })
 
-  $('#searchForm').addEventListener('submit', async (e) => {
+  const sf = $('#searchForm');
+  if (sf) sf.addEventListener('submit', async (e) => {
     e.preventDefault()
     const params = new URLSearchParams()
-    const q = $('#q').value.trim(); if(q) params.set('q', q)
-    const faculty = $('#faculty').value.trim(); if(faculty) params.set('faculty', faculty)
-    const grade = $('#grade').value.trim(); if(grade) params.set('grade', grade)
-    const sess = $('#sess').value.trim(); if(sess) params.set('session', sess)
+    const q = $('#q')?.value?.trim(); if(q) params.set('q', q)
+    const faculty = $('#faculty')?.value?.trim(); if(faculty) params.set('faculty', faculty)
+    const grade = $('#grade')?.value?.trim(); if(grade) params.set('grade', grade)
+    const sess = $('#sess')?.value?.trim(); if(sess) params.set('session', sess)
 
-    $('#searchMsg').textContent = 'Searching...'
+    const msg = $('#searchMsg'); if (msg) msg.textContent = 'Searching...'
     try {
       const r = await fetch(API.search + '?' + params.toString())
       const j = await r.json()
       renderResults(j.data || [])
-      $('#searchMsg').textContent = `${(j.data||[]).length} results`
+      if (msg) msg.textContent = `${(j.data||[]).length} results`
     } catch(err){
-      $('#searchMsg').textContent = 'Search failed.'
+      if (msg) msg.textContent = 'Search failed.'
     }
   })
 })
@@ -68,7 +71,8 @@ async function loadDocs(){
 }
 
 function renderDocs(list){
-  const tbody = $('#docsTable tbody')
+  const tbody = document.querySelector('#docsTable tbody')
+  if (!tbody) return
   tbody.innerHTML = ''
   list.forEach(d => {
     const tr = el('tr')
@@ -87,7 +91,8 @@ function renderDocs(list){
 }
 
 function renderResults(rows){
-  const tbody = $('#resultsTable tbody')
+  const tbody = document.querySelector('#resultsTable tbody')
+  if (!tbody) return
   tbody.innerHTML = ''
   rows.forEach(r => {
     const tr = el('tr')
@@ -105,9 +110,9 @@ function renderResults(rows){
   })
 }
 
-function td(v){ const d=el('td'); d.textContent=v??''; return d }
+function td(v){ const d=document.createElement('td'); d.textContent=v??''; d.className='p-2 border-b'; return d }
 function tdLink(url){
-  const d=el('td')
-  if(url){ const a=el('a',{href:url, target:'_blank'}); a.textContent='Download'; d.appendChild(a) }
+  const d=document.createElement('td'); d.className='p-2 border-b'
+  if(url){ const a=document.createElement('a'); a.href=url; a.target='_blank'; a.className='text-lime-700 underline'; a.textContent='Download'; d.appendChild(a) }
   return d
 }
