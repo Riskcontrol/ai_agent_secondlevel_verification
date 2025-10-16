@@ -15,6 +15,8 @@
 /node_modules
 /public/hot
 /public/storage
+# Include Vite build output in version control
+!/public/build
 /storage/*.key
 /storage/pail
 /vendor
