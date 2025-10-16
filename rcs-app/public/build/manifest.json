@@ -1,0 +1,22 @@
+{
+  "resources/css/app.css": {
+    "file": "assets/app-CzP_leQc.css",
+    "src": "resources/css/app.css",
+    "isEntry": true,
+    "names": [
+      "app.css"
+    ]
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-Bj43h_rG.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true
+  },
+  "resources/js/convocation.js": {
+    "file": "assets/convocation-bpAzXN3z.js",
+    "name": "convocation",
+    "src": "resources/js/convocation.js",
+    "isEntry": true
+  }
+}
