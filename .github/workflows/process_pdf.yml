@@ -3,42 +3,177 @@ on:
   repository_dispatch:
     types: [process_pdf]
 jobs:
-  extract:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      total_pages: ${{ steps.probe.outputs.total_pages }}
+      chunk_size: ${{ steps.cfg.outputs.chunk_size }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tesseract-ocr poppler-utils libpoppler-cpp-dev
-
       - name: Install Python deps
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run extractor
+          python - <<'PY'
+          import os,sys,tempfile,requests
+          import fitz
+          url=os.environ['SOURCE_URL']
+          r=requests.get(url,timeout=120); r.raise_for_status()
+          p=tempfile.mktemp(suffix='.pdf'); open(p,'wb').write(r.content)
+          doc=fitz.open(p); print(f"TOTAL_PAGES={len(doc)}")
+          PY
         env:
           SOURCE_URL: ${{ github.event.client_payload.source_url }}
-          ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
-          SESSION: ${{ github.event.client_payload.session }}
-          CALLBACK_URL: ${{ github.event.client_payload.callback_url }}
-          CALLBACK_HMAC_SECRET: ${{ secrets.CALLBACK_HMAC_SECRET }}
-          RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url }}
-          RESULT_UPLOAD_TOKEN: ${{ secrets.RESULT_UPLOAD_TOKEN }}
-          DOC_ID: ${{ github.event.client_payload.doc_id }}
+      - name: Probe pages
+        id: probe
         run: |
-          python scripts/extract.py
+          TOTAL=$(python - <<'PY'
+          import os,sys,tempfile,requests
+          import fitz
+          url=os.environ['SOURCE_URL']
+          r=requests.get(url,timeout=120); r.raise_for_status()
+          p=tempfile.mktemp(suffix='.pdf'); open(p,'wb').write(r.content)
+          doc=fitz.open(p); print(len(doc))
+          PY
+          )
+          echo "total_pages=$TOTAL" >> $GITHUB_OUTPUT
+        env:
+          SOURCE_URL: ${{ github.event.client_payload.source_url }}
+      - name: Config
+        id: cfg
+        name: Process Convocation PDF
+        on:
+          repository_dispatch:
+            types: [process_pdf]
+        jobs:
+          plan:
+            runs-on: ubuntu-latest
+            outputs:
+              matrix: ${{ steps.make.outputs.matrix }}
+            steps:
+              - name: Checkout
+                uses: actions/checkout@v4
+              - name: Install pdfinfo
+                run: |
+                  sudo apt-get update
+                  sudo apt-get install -y poppler-utils
+              - name: Download source PDF
+                run: |
+                  curl -L "$SOURCE_URL" -o source.pdf
+                env:
+                  SOURCE_URL: ${{ github.event.client_payload.source_url }}
+              - name: Probe pages
+                id: probe
+                run: |
+                  PAGES=$(pdfinfo source.pdf | awk -F: '/Pages/ {print $2}' | xargs)
+                  echo "total_pages=$PAGES" >> $GITHUB_OUTPUT
+              - name: Upload source artifact
+                uses: actions/upload-artifact@v4
+                with:
+                  name: source-pdf
+                  path: source.pdf
+              - name: Make matrix
+                id: make
+                run: |
+                  python - <<'PY'
+                  import os, json
+                  total = int(os.environ['TOTAL'])
+                  size = int(os.environ.get('SIZE','10'))
+                  chunks = [{'start': i+1, 'end': min(total, i+size)} for i in range(0,total,size)]
+                  out = json.dumps(chunks)
+                  print(out)
+                  with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+                    f.write('matrix='+out+'\n')
+                  PY
+                env:
+                  TOTAL: ${{ steps.probe.outputs.total_pages }}
+                  SIZE: ${{ github.event.client_payload.chunk_size || 10 }}
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: outputs
-          path: outputs/*
+          extract:
+            needs: plan
+            runs-on: ubuntu-latest
+            strategy:
+              fail-fast: false
+              matrix:
+                include: ${{ fromJson(needs.plan.outputs.matrix) }}
+            steps:
+              - name: Checkout
+                uses: actions/checkout@v4
+              - name: Set up Python
+                uses: actions/setup-python@v5
+                with:
+                  python-version: '3.11'
+              - name: Install system deps
+                run: |
+                  sudo apt-get update
+                  sudo apt-get install -y tesseract-ocr poppler-utils libpoppler-cpp-dev
+              - name: Install Python deps
+                run: |
+                  python -m pip install --upgrade pip
+                  pip install -r requirements.txt
+              - name: Download source artifact
+                uses: actions/download-artifact@v4
+                with:
+                  name: source-pdf
+                  path: .
+              - name: Extract chunk ${{ matrix.start }}-${{ matrix.end }}
+                env:
+                  SOURCE_FILE: source.pdf
+                  ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
+                  SESSION: ${{ github.event.client_payload.session }}
+                  CALLBACK_URL: ''
+                  CALLBACK_HMAC_SECRET: ''
+                  RESULT_UPLOAD_URL: ''
+                  RESULT_UPLOAD_TOKEN: ''
+                  DOC_ID: ${{ github.event.client_payload.doc_id }}
+                  PAGE_START: ${{ matrix.start }}
+                  PAGE_END: ${{ matrix.end }}
+                  OUT_SUFFIX: -p${{ matrix.start }}-${{ matrix.end }}
+                  OCR_DPI: 220
+                run: |
+                  python scripts/extract.py
+                  mkdir -p chunks
+                  mv outputs/* chunks/
+              - name: Upload chunk artifacts
+                uses: actions/upload-artifact@v4
+                with:
+                  name: chunks
+                  path: chunks/*
+
+          aggregate:
+            needs: [plan, extract]
+            runs-on: ubuntu-latest
+            steps:
+              - name: Checkout
+                uses: actions/checkout@v4
+              - name: Set up Python
+                uses: actions/setup-python@v5
+                with:
+                  python-version: '3.11'
+              - name: Install Python deps
+                run: |
+                  python -m pip install --upgrade pip
+                  pip install -r requirements.txt
+              - name: Download chunks
+                uses: actions/download-artifact@v4
+                with:
+                  name: chunks
+                  path: chunks
+              - name: Aggregate and upload
+                env:
+                  ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
+                  CALLBACK_URL: ${{ github.event.client_payload.callback_url }}
+                  CALLBACK_HMAC_SECRET: ${{ secrets.CALLBACK_HMAC_SECRET }}
+                  RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url }}
+                  RESULT_UPLOAD_TOKEN: ${{ secrets.RESULT_UPLOAD_TOKEN }}
+                  DOC_ID: ${{ github.event.client_payload.doc_id }}
+                run: |
+                  python scripts/aggregate_results.py
+              - name: Upload final artifacts
+                uses: actions/upload-artifact@v4
+                with:
+                  name: outputs
+                  path: outputs/*

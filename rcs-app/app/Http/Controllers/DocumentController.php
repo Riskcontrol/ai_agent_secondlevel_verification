@@ -24,7 +24,8 @@ class DocumentController extends Controller
             'status' => 'processing'
         ]);
 
-        $sourceUrl = URL::temporarySignedRoute('documents.download', now()->addMinutes(30), ['doc' => $doc->id]);
+    // Extend expiry to 24h to accommodate long/parallel processing in CI
+    $sourceUrl = URL::temporarySignedRoute('documents.download', now()->addHours(24), ['doc' => $doc->id]);
 
         $pat = config('services.github.pat');
         if (!empty($pat)) {

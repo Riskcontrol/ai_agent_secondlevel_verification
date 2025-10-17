@@ -191,10 +191,17 @@ def parse_name(line: str) -> Optional[Tuple[str,str,str]]:
     return surname, first_name, other
 
 
-def extract_words_from_pdf(path: str) -> List[Dict]:
+def extract_words_from_pdf(path: str, pages: Optional[List[int]] = None, keepalive: bool = True) -> List[Dict]:
+    """Extract words via text from specific 1-based pages (or all if None)."""
     words_all = []
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
+        total = len(pdf.pages)
+        indices = list(range(1, total + 1)) if not pages else pages
+        for idx in indices:
+            try:
+                page = pdf.pages[idx - 1]
+            except Exception:
+                continue
             pw = page.width
             ph = page.height
             words = page.extract_words(use_text_flow=True, keep_blank_chars=False)
@@ -206,32 +213,68 @@ def extract_words_from_pdf(path: str) -> List[Dict]:
                 'page_height': ph,
             } for w in words]
             words_all.append({ 'page_width': pw, 'page_height': ph, 'words': words })
+            if keepalive:
+                print(f"[extract-text] page {idx}/{total} -> {len(words)} words", flush=True)
     return words_all
 
 
-def extract_words_via_ocr(path: str, dpi: int = 300) -> List[Dict]:
+def _group_ranges(pages: List[int]) -> List[Tuple[int, int]]:
+    if not pages:
+        return []
+    pages = sorted(set(pages))
+    ranges: List[Tuple[int,int]] = []
+    start = prev = pages[0]
+    for p in pages[1:]:
+        if p == prev + 1:
+            prev = p
+        else:
+            ranges.append((start, prev))
+            start = prev = p
+    ranges.append((start, prev))
+    return ranges
+
+
+def extract_words_via_ocr(path: str, pages: Optional[List[int]] = None, dpi: int = 250, tess_psm: Optional[str] = None, tess_lang: Optional[str] = None, keepalive: bool = True) -> List[Dict]:
+    """OCR specific pages (1-based). Uses grouped ranges for efficiency."""
     tmpdir = tempfile.mkdtemp()
     try:
-        images = convert_from_path(path, dpi=dpi)
         pages_out = []
-        for img in images:
-            data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
-            pw, ph = img.size
-            words = []
-            n = len(data['text'])
-            for i in range(n):
-                t = data['text'][i]
-                if not t or t.strip() == "":
-                    continue
-                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                words.append({
-                    'text': t,
-                    'x0': float(x), 'y0': float(y),
-                    'x1': float(x+w), 'y1': float(y+h),
-                    'page_width': pw,
-                    'page_height': ph,
-                })
-            pages_out.append({ 'page_width': pw, 'page_height': ph, 'words': words })
+        ranges = _group_ranges(pages) if pages else [(None, None)]
+        total_pages = 0
+        for first, last in ranges:
+            kwargs = { 'dpi': dpi }
+            if first is not None and last is not None:
+                kwargs.update({'first_page': first, 'last_page': last})
+            images = convert_from_path(path, **kwargs)
+            # Map image index back to page numbers
+            start_page_num = first if first is not None else 1
+            for idx, img in enumerate(images):
+                page_num = (start_page_num + idx) if first is not None else (total_pages + idx + 1)
+                config = ''
+                if tess_psm:
+                    config += f" --psm {tess_psm}"
+                if tess_lang:
+                    config += f" -l {tess_lang}"
+                data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT, config=config or None)
+                pw, ph = img.size
+                words = []
+                n = len(data['text'])
+                for i in range(n):
+                    t = data['text'][i]
+                    if not t or t.strip() == "":
+                        continue
+                    x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                    words.append({
+                        'text': t,
+                        'x0': float(x), 'y0': float(y),
+                        'x1': float(x+w), 'y1': float(y+h),
+                        'page_width': pw,
+                        'page_height': ph,
+                    })
+                pages_out.append({ 'page_width': pw, 'page_height': ph, 'words': words })
+                if keepalive:
+                    print(f"[ocr] page {page_num} -> {len(words)} words", flush=True)
+            total_pages += len(images)
         return pages_out
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -246,6 +289,54 @@ def is_text_extractable(path: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def get_page_count(path: str) -> int:
+    try:
+        with fitz.open(path) as doc:
+            return len(doc)
+    except Exception:
+        return 0
+
+
+def parse_page_env(total_pages: int) -> Optional[List[int]]:
+    """Parse PAGE_START/PAGE_END or PAGES env. Returns list of 1-based pages or None for all."""
+    pages_env = os.getenv('PAGES', '').strip()
+    start_env = os.getenv('PAGE_START', '').strip()
+    end_env = os.getenv('PAGE_END', '').strip()
+    pages: List[int] = []
+    if pages_env:
+        # format like "1-10,12,15-20"
+        for part in pages_env.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            if '-' in part:
+                a,b = part.split('-',1)
+                try:
+                    a_i = max(1, int(a))
+                    b_i = min(total_pages, int(b))
+                    if a_i <= b_i:
+                        pages.extend(list(range(a_i, b_i+1)))
+                except Exception:
+                    continue
+            else:
+                try:
+                    p = int(part)
+                    if 1 <= p <= total_pages:
+                        pages.append(p)
+                except Exception:
+                    continue
+    elif start_env or end_env:
+        try:
+            a_i = int(start_env) if start_env else 1
+            b_i = int(end_env) if end_env else total_pages
+            a_i = max(1, a_i); b_i = min(total_pages, b_i)
+            if a_i <= b_i:
+                pages = list(range(a_i, b_i+1))
+        except Exception:
+            pages = []
+    return pages or None
 
 
 def parse_document(pages_words: List[Dict], default_session: str = "") -> Tuple[List[Row], Dict]:
@@ -357,6 +448,7 @@ def upload_results(upload_url: str, token: str, doc_id: Optional[str], paths: Di
 
 def main():
     source_url = os.getenv('SOURCE_URL')
+    source_file = os.getenv('SOURCE_FILE')
     original_filename = os.getenv('ORIGINAL_FILENAME', 'document.pdf')
     default_session = os.getenv('SESSION', '')
     callback_url = os.getenv('CALLBACK_URL')
@@ -364,26 +456,46 @@ def main():
     result_upload_url = os.getenv('RESULT_UPLOAD_URL')
     result_upload_token = os.getenv('RESULT_UPLOAD_TOKEN', '')
     doc_id = os.getenv('DOC_ID')
+    out_suffix = os.getenv('OUT_SUFFIX', '').strip()
+    # OCR tuning
+    ocr_dpi = int(os.getenv('OCR_DPI', '250') or '250')
+    tess_psm = os.getenv('TESSERACT_PSM', '').strip() or None
+    tess_lang = os.getenv('TESSERACT_LANG', '').strip() or None
 
-    if not source_url:
-        print('SOURCE_URL env required', flush=True)
+    if not source_url and not source_file:
+        print('SOURCE_URL or SOURCE_FILE env required', flush=True)
         return 2
 
     tmp_pdf = tempfile.mktemp(suffix='.pdf')
-    r = requests.get(source_url, timeout=120)
-    r.raise_for_status()
-    with open(tmp_pdf, 'wb') as f:
-        f.write(r.content)
+    if source_file and os.path.exists(source_file):
+        shutil.copy2(source_file, tmp_pdf)
+    else:
+        r = requests.get(source_url, timeout=120)
+        r.raise_for_status()
+        with open(tmp_pdf, 'wb') as f:
+            f.write(r.content)
+
+    total_pages = get_page_count(tmp_pdf)
+    sel_pages = parse_page_env(total_pages)
+    print(f"[init] total_pages={total_pages} selected={('all' if not sel_pages else len(sel_pages))}", flush=True)
 
     text_ok = is_text_extractable(tmp_pdf)
     if text_ok:
-        pages_words = extract_words_from_pdf(tmp_pdf)
+        pages_words = extract_words_from_pdf(tmp_pdf, pages=sel_pages)
     else:
-        pages_words = extract_words_via_ocr(tmp_pdf)
+        pages_words = extract_words_via_ocr(tmp_pdf, pages=sel_pages, dpi=ocr_dpi, tess_psm=tess_psm, tess_lang=tess_lang)
 
     rows, audit = parse_document(pages_words, default_session)
 
     base = os.path.splitext(os.path.basename(original_filename))[0]
+    if sel_pages:
+        # if continuous range, append suffix, else allow provided OUT_SUFFIX
+        rng = _group_ranges(sel_pages)
+        if len(rng) == 1 and not out_suffix:
+            a,b = rng[0]
+            out_suffix = f"-p{a}-{b}"
+    if out_suffix:
+        base = base + out_suffix
     out_dir = os.path.join('outputs')
     paths = save_outputs(rows, base, out_dir)
 
@@ -401,6 +513,8 @@ def main():
 
     # upload results files back to app if configured
     if result_upload_url:
+        if not result_upload_token:
+            print('[warn] RESULT_UPLOAD_TOKEN is empty; skipping upload to app.', flush=True)
         upload_results(result_upload_url, result_upload_token, doc_id, paths, summary)
 
     # callback with JSON summary
@@ -414,6 +528,8 @@ def main():
             print('Callback status:', cr.status_code)
         except Exception as e:
             print('Callback error:', repr(e))
+    else:
+        print('[info] CALLBACK_URL not set; skipping callback to app.', flush=True)
 
     print(json.dumps(summary, indent=2))
 
