@@ -274,12 +274,14 @@ def extract_words_via_ocr(path: str, pages: Optional[List[int]] = None, dpi: int
             start_page_num = first if first is not None else 1
             for idx, img in enumerate(images):
                 page_num = (start_page_num + idx) if first is not None else (total_pages + idx + 1)
-                config = ''
+                # Build tesseract config as a string; never pass None (pytesseract will call .strip())
+                cfg_parts = []
                 if tess_psm:
-                    config += f" --psm {tess_psm}"
+                    cfg_parts += ["--psm", str(tess_psm)]
                 if tess_lang:
-                    config += f" -l {tess_lang}"
-                data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT, config=config or None)
+                    cfg_parts += ["-l", str(tess_lang)]
+                config = " ".join(cfg_parts)
+                data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT, config=config)
                 pw, ph = img.size
                 words = []
                 n = len(data['text'])
