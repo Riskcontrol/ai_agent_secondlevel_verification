@@ -33,6 +33,7 @@ jobs:
         with:
           name: source-pdf
           path: source.pdf
+          overwrite: true
       - name: Make matrix
         id: make
         run: |
@@ -92,6 +93,9 @@ jobs:
           PAGE_END: ${{ matrix.end }}
           OUT_SUFFIX: -p${{ matrix.start }}-${{ matrix.end }}
           OCR_DPI: 220
+          MIN_TEXT_WORDS: ${{ github.event.client_payload.min_text_words || 25 }}
+          TESSERACT_PSM: ${{ github.event.client_payload.tesseract_psm }}
+          TESSERACT_LANG: ${{ github.event.client_payload.tesseract_lang }}
         run: |
           python scripts/extract.py
           mkdir -p chunks
@@ -99,7 +103,7 @@ jobs:
       - name: Upload chunk artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chunks
+          name: chunks-${{ matrix.start }}-${{ matrix.end }}
           path: chunks/*
 
   aggregate:
@@ -125,9 +129,9 @@ jobs:
       - name: Aggregate and upload
         env:
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
-          CALLBACK_URL: ${{ github.event.client_payload.callback_url }}
+          CALLBACK_URL: ${{ github.event.client_payload.callback_url || 'https://search.riskcontrolnigeria.com/api/github/callback' }}
           CALLBACK_HMAC_SECRET: ${{ secrets.CALLBACK_HMAC_SECRET }}
-          RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url }}
+          RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url || 'https://search.riskcontrolnigeria.com/api/github/upload-results' }}
           RESULT_UPLOAD_TOKEN: ${{ secrets.RESULT_UPLOAD_TOKEN }}
           DOC_ID: ${{ github.event.client_payload.doc_id }}
         run: |
@@ -137,3 +141,4 @@ jobs:
         with:
           name: outputs
           path: outputs/*
+          overwrite: true

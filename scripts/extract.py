@@ -7,18 +7,8 @@ import hmac
 import hashlib
 import tempfile
 import shutil
-import requests
 from dataclasses import dataclass, asdict
 from typing import List, Tuple, Dict, Optional
-
-import fitz  # PyMuPDF
-import pdfplumber
-from pdf2image import convert_from_path
-import pytesseract
-from PIL import Image
-import numpy as np
-import pandas as pd
-from docx import Document
 
 # ------------ Config ------------
 GRADE_MAP = {
@@ -41,6 +31,14 @@ SESSION_PAT = re.compile(r"(\d{4}/\d{4}).{0,20}?ACADEMIC\s+SESSION", re.I)
 
 NAME_SPLIT_COMMA = re.compile(r"^\s*([A-Z\-']+),\s*(.+)$")
 UPPER_TOKEN = re.compile(r"^[A-Z][A-Z\-']+$")
+
+# Common non-name words and phrases that appear as page decorations/headers
+NOISE_STOPWORDS = {
+    'AN', 'A', 'ON', 'OF', 'IN', 'THE', 'AND', 'WITH', 'FOR', 'TO',
+    'UNIVERSITY', 'UYO', 'UNIVERSITY OF UYO',
+    'CONVOCATION', 'CEREMONY', 'PROGRAMME', 'PROGRAM', 'VOLUME', 'VOL', 'NO',
+    'INSTITUTION', 'MISSION', 'AN INSTITUTION ON A MISSION',
+}
 
 @dataclass
 class Row:
@@ -69,7 +67,8 @@ def detect_columns(words: List[dict], page_width: float, expected_cols: Optional
     # words: list of dict with keys x0,y0,x1,y1,text
     if not words:
         return [[], [], []]
-    centers = np.array([( (w['x0']+w['x1'])/2.0 ) for w in words]).reshape(-1,1)
+    import numpy as np
+    centers = np.array([(((w['x0']+w['x1'])/2.0)) for w in words]).reshape(-1,1)
 
     # Try cluster 3, then 2, then 1
     for k in ([expected_cols] if expected_cols else []) + [3,2,1]:
@@ -100,8 +99,9 @@ def detect_columns(words: List[dict], page_width: float, expected_cols: Optional
     return thirds
 
 
-def kmeans_1d(X: np.ndarray, k: int, iters: int = 50) -> Dict:
+def kmeans_1d(X, k: int, iters: int = 50) -> Dict:
     # simple 1D k-means
+    import numpy as np
     rng = np.random.default_rng(0)
     centers = np.quantile(X, np.linspace(0,1,k+2)[1:-1]).reshape(-1,1)
     for _ in range(iters):
@@ -161,6 +161,10 @@ def parse_name(line: str) -> Optional[Tuple[str,str,str]]:
     # ignore obvious non-name keywords
     if FACULTY_PAT.match(line) or QUALI_PAT.match(line) or is_grade(line):
         return None
+    # reject common decorative lines and mottos
+    u = line.upper()
+    if ('UNIVERSITY' in u or 'CONVOCATION' in u or 'CEREMONY' in u or 'INSTITUTION' in u or 'MISSION' in u) and ',' not in line:
+        return None
     # comma pattern
     m = NAME_SPLIT_COMMA.match(line)
     if m:
@@ -175,25 +179,43 @@ def parse_name(line: str) -> Optional[Tuple[str,str,str]]:
     tokens = line.split()
     if not tokens:
         return None
+    # if majority of tokens are known stopwords and there's no comma, likely not a name
+    if ',' not in line:
+        toks_u = [t.upper() for t in tokens]
+        sw_hits = sum(1 for t in toks_u if t in NOISE_STOPWORDS)
+        if toks_u and sw_hits/len(toks_u) >= 0.6:
+            return None
     # find leading uppercase tokens
     idx = 0
     while idx < len(tokens) and UPPER_TOKEN.match(tokens[idx]):
         idx += 1
     if idx == 0:
-        # might still be Surname First Middle with Surname capitalized only first letter
-        idx = 1
+        # No all-caps prefix; require a comma to be safe for Surname First Middle
+        # If no comma, bail out to avoid parsing mottos and headings
+        return None
+    # If the entire line is uppercase tokens and we consumed all tokens as surname,
+    # reinterpret as Surname First Other using the first token as surname
+    if idx == len(tokens) and len(tokens) >= 2:
+        surname = tokens[0].upper()
+        first_name = tokens[1]
+        other = " ".join(tokens[2:])
+        return surname, first_name, other
     surname = " ".join(tokens[:idx]).upper()
     rest = tokens[idx:]
     if not rest:
         return None
     first_name = rest[0]
     other = " ".join(rest[1:])
+    # avoid interpreting one-letter "A" or "AN" as first name unless there's a comma
+    if ',' not in line and len(first_name) <= 1 and not other:
+        return None
     return surname, first_name, other
 
 
 def extract_words_from_pdf(path: str, pages: Optional[List[int]] = None, keepalive: bool = True) -> List[Dict]:
     """Extract words via text from specific 1-based pages (or all if None)."""
     words_all = []
+    import pdfplumber
     with pdfplumber.open(path) as pdf:
         total = len(pdf.pages)
         indices = list(range(1, total + 1)) if not pages else pages
@@ -212,7 +234,7 @@ def extract_words_from_pdf(path: str, pages: Optional[List[int]] = None, keepali
                 'page_width': pw,
                 'page_height': ph,
             } for w in words]
-            words_all.append({ 'page_width': pw, 'page_height': ph, 'words': words })
+            words_all.append({ 'page_num': idx, 'page_width': pw, 'page_height': ph, 'words': words })
             if keepalive:
                 print(f"[extract-text] page {idx}/{total} -> {len(words)} words", flush=True)
     return words_all
@@ -238,6 +260,8 @@ def extract_words_via_ocr(path: str, pages: Optional[List[int]] = None, dpi: int
     """OCR specific pages (1-based). Uses grouped ranges for efficiency."""
     tmpdir = tempfile.mkdtemp()
     try:
+        from pdf2image import convert_from_path
+        import pytesseract
         pages_out = []
         ranges = _group_ranges(pages) if pages else [(None, None)]
         total_pages = 0
@@ -271,7 +295,7 @@ def extract_words_via_ocr(path: str, pages: Optional[List[int]] = None, dpi: int
                         'page_width': pw,
                         'page_height': ph,
                     })
-                pages_out.append({ 'page_width': pw, 'page_height': ph, 'words': words })
+                pages_out.append({ 'page_num': page_num, 'page_width': pw, 'page_height': ph, 'words': words })
                 if keepalive:
                     print(f"[ocr] page {page_num} -> {len(words)} words", flush=True)
             total_pages += len(images)
@@ -282,6 +306,7 @@ def extract_words_via_ocr(path: str, pages: Optional[List[int]] = None, dpi: int
 
 def is_text_extractable(path: str) -> bool:
     try:
+        import fitz  # PyMuPDF
         with fitz.open(path) as doc:
             for p in doc:
                 if p.get_text().strip():
@@ -293,10 +318,49 @@ def is_text_extractable(path: str) -> bool:
 
 def get_page_count(path: str) -> int:
     try:
+        import fitz  # PyMuPDF
         with fitz.open(path) as doc:
             return len(doc)
     except Exception:
         return 0
+
+
+def hybrid_extract_words(path: str, pages: Optional[List[int]], ocr_dpi: int = 250, tess_psm: Optional[str] = None, tess_lang: Optional[str] = None, keepalive: bool = True, min_text_words: int = 25) -> List[Dict]:
+    """Try text extraction first, then OCR per page if too few words were found."""
+    # First pass: text extraction for selected pages
+    text_pages = extract_words_from_pdf(path, pages=pages, keepalive=keepalive)
+    # Build a quick lookup of page_num -> index
+    by_num: Dict[int, Dict] = {p.get('page_num', i+1): p for i, p in enumerate(text_pages)}
+    results: List[Dict] = []
+    indices = [p.get('page_num', i+1) for i, p in enumerate(text_pages)]
+    # For each, decide whether to OCR fallback
+    to_ocr: List[int] = []
+    for pnum in indices:
+        words = by_num[pnum]['words']
+        if len(words) < min_text_words:
+            to_ocr.append(pnum)
+        else:
+            results.append(by_num[pnum])
+    if to_ocr:
+        ocr_pages = extract_words_via_ocr(path, pages=to_ocr, dpi=ocr_dpi, tess_psm=tess_psm, tess_lang=tess_lang, keepalive=keepalive)
+        # decide which to keep per page: pick whichever has more words
+        ocr_by_num = {p['page_num']: p for p in ocr_pages}
+        for pnum in to_ocr:
+            txt = by_num.get(pnum)
+            ocr = ocr_by_num.get(pnum)
+            chosen = None
+            if ocr and (not txt or len(ocr['words']) >= len(txt['words'])):
+                chosen = ocr
+                if keepalive:
+                    print(f"[hybrid] page {pnum}: text={len(txt['words']) if txt else 0} ocr={len(ocr['words'])} -> using OCR", flush=True)
+            else:
+                chosen = txt
+                if keepalive:
+                    print(f"[hybrid] page {pnum}: text={len(txt['words']) if txt else 0} ocr={len(ocr['words']) if ocr else 0} -> using text", flush=True)
+            results.append(chosen)
+    # Sort by page order
+    results.sort(key=lambda p: p.get('page_num', 0))
+    return results
 
 
 def parse_page_env(total_pages: int) -> Optional[List[int]]:
@@ -391,7 +455,7 @@ def parse_document(pages_words: List[Dict], default_session: str = "") -> Tuple[
                 ))
             else:
                 # ignore page numbers and decorative texts
-                if re.fullmatch(r"\d+|Vol\.?\s*\d+|Convocation|Ceremony|UNIVERSITY OF UYO|An institution on a Mission", line, re.I):
+                if re.fullmatch(r"\d+|Vol\.?\s*\d+|Convocation|Ceremony|UNIVERSITY OF UYO|An?\s+Institution\s+on\s+a\s+Mission", line, re.I):
                     continue
                 audit['unparsed'].append({ 'page': pi+1, 'line': line })
         # If no heading seen on this page, assume continuation of previous headings
@@ -402,6 +466,8 @@ def parse_document(pages_words: List[Dict], default_session: str = "") -> Tuple[
 def save_outputs(rows: List[Row], base: str, out_dir: str) -> Dict[str,str]:
     os.makedirs(out_dir, exist_ok=True)
     data = [asdict(r) for r in rows]
+    import pandas as pd
+    from docx import Document
     df = pd.DataFrame(data, columns=[
         'surname','first_name','other_name','course_studied','faculty','grade','qualification_obtained','session'
     ])
@@ -431,6 +497,7 @@ def upload_results(upload_url: str, token: str, doc_id: Optional[str], paths: Di
     if not upload_url:
         return
     try:
+        import requests
         files = {}
         for key in ['csv','xlsx','docx']:
             p = paths.get(key)
@@ -447,6 +514,7 @@ def upload_results(upload_url: str, token: str, doc_id: Optional[str], paths: Di
 
 
 def main():
+    import requests
     source_url = os.getenv('SOURCE_URL')
     source_file = os.getenv('SOURCE_FILE')
     original_filename = os.getenv('ORIGINAL_FILENAME', 'document.pdf')
@@ -479,11 +547,9 @@ def main():
     sel_pages = parse_page_env(total_pages)
     print(f"[init] total_pages={total_pages} selected={('all' if not sel_pages else len(sel_pages))}", flush=True)
 
-    text_ok = is_text_extractable(tmp_pdf)
-    if text_ok:
-        pages_words = extract_words_from_pdf(tmp_pdf, pages=sel_pages)
-    else:
-        pages_words = extract_words_via_ocr(tmp_pdf, pages=sel_pages, dpi=ocr_dpi, tess_psm=tess_psm, tess_lang=tess_lang)
+    min_words = int(os.getenv('MIN_TEXT_WORDS', '25') or '25')
+    # Use hybrid extraction to avoid pages where text layer is sparse or out of order
+    pages_words = hybrid_extract_words(tmp_pdf, pages=sel_pages, ocr_dpi=ocr_dpi, tess_psm=tess_psm, tess_lang=tess_lang, keepalive=True, min_text_words=min_words)
 
     rows, audit = parse_document(pages_words, default_session)
 
