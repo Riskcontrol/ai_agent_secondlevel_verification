@@ -79,7 +79,7 @@ jobs:
         with:
           name: source-pdf
           path: .
-      - name: Extract chunk ${{ matrix.start }}-${{ matrix.end }}
+      - name: Extract chunk ${{ matrix.start }}-${{ matrix.end }} (agent)
         env:
           SOURCE_FILE: source.pdf
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
@@ -91,15 +91,19 @@ jobs:
           DOC_ID: ${{ github.event.client_payload.doc_id }}
           PAGE_START: ${{ matrix.start }}
           PAGE_END: ${{ matrix.end }}
-          OUT_SUFFIX: -p${{ matrix.start }}-${{ matrix.end }}
-          OCR_DPI: 220
+          DPI: 300
           MIN_TEXT_WORDS: ${{ github.event.client_payload.min_text_words || 25 }}
           TESSERACT_PSM: ${{ github.event.client_payload.tesseract_psm }}
           TESSERACT_LANG: ${{ github.event.client_payload.tesseract_lang }}
         run: |
-          python scripts/extract.py
+          # Run the Gemini-based agent extractor; it will create outputs/<base>.csv|xlsx
+          python scripts/run_agent.py
           mkdir -p chunks
-          mv outputs/* chunks/
+          # Move and suffix per-chunk outputs to avoid collisions
+          base="$(basename "${ORIGINAL_FILENAME:-document.pdf}")"; base="${base%.*}"
+          for f in outputs/${base}.*; do
+            ext="${f##*.}"; mv "$f" "chunks/${base}-p${{ matrix.start }}-${{ matrix.end }}.${ext}" || true
+          done
       - name: Upload chunk artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -179,7 +183,7 @@ jobs:
           if [ -n "${CALLBACK_URL:-}" ]; then
             check_post "${CALLBACK_URL}"
           fi
-      - name: Aggregate and upload
+      - name: Aggregate and upload (merge CSVs and XLSX only)
         env:
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
           CALLBACK_URL: ${{ github.event.client_payload.callback_url || 'https://search.riskcontrolnigeria.com/api/github/callback' }}
@@ -187,8 +191,8 @@ jobs:
           RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url || 'https://search.riskcontrolnigeria.com/api/github/upload-results' }}
           RESULT_UPLOAD_TOKEN: ${{ secrets.RESULT_UPLOAD_TOKEN }}
           DOC_ID: ${{ github.event.client_payload.doc_id }}
-          AGG_SKIP_DOCX: ${{ github.event.client_payload.agg_skip_docx || 'true' }}
-          AGG_MAX_DOCX_ROWS: ${{ github.event.client_payload.agg_max_docx_rows || 3000 }}
+          AGG_SKIP_DOCX: 'true'
+          AGG_MAX_DOCX_ROWS: 0
         run: |
           python scripts/aggregate_results.py
       - name: Upload final artifacts
