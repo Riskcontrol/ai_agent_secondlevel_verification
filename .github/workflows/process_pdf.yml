@@ -84,6 +84,7 @@ jobs:
           SOURCE_FILE: source.pdf
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
           SESSION: ${{ github.event.client_payload.session }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CALLBACK_URL: ''
           CALLBACK_HMAC_SECRET: ''
           RESULT_UPLOAD_URL: ''
