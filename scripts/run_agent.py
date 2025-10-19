@@ -9,7 +9,11 @@ from typing import Dict
 
 import requests
 import pandas as pd
+import sys
+from pathlib import Path
 
+# Ensure we can import agent.py from the same scripts directory
+sys.path.append(str(Path(__file__).resolve().parent))
 from agent import ConvocationPDFExtractor
 
 
