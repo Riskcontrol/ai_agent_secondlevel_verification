@@ -7,30 +7,47 @@ from typing import Dict, List
 import hmac
 import hashlib
 import requests
-from docx import Document
 
 
 def norm_space(s: str) -> str:
     return " ".join((s or "").split()).strip()
 
 
-def save_outputs(df: pd.DataFrame, base: str, out_dir: str) -> Dict[str,str]:
+def save_outputs(df: pd.DataFrame, base: str, out_dir: str, *, skip_docx: bool = False, max_docx_rows: int = 3000) -> Dict[str,str]:
     os.makedirs(out_dir, exist_ok=True)
+    paths: Dict[str, str] = {}
     csv_path = os.path.join(out_dir, base + '.csv')
     xlsx_path = os.path.join(out_dir, base + '.xlsx')
-    docx_path = os.path.join(out_dir, base + '.docx')
     df.to_csv(csv_path, index=False)
-    df.to_excel(xlsx_path, index=False)
-    # DOCX
-    doc = Document()
-    table = doc.add_table(rows=len(df)+1, cols=len(df.columns))
-    for j, col in enumerate(df.columns):
-        table.cell(0,j).text = col
-    for i, row in enumerate(df.itertuples(index=False), start=1):
-        for j, val in enumerate(row):
-            table.cell(i,j).text = '' if pd.isna(val) else str(val)
-    doc.save(docx_path)
-    return { 'csv': csv_path, 'xlsx': xlsx_path, 'docx': docx_path }
+    print(f"[agg] Wrote CSV: {csv_path}")
+    try:
+        df.to_excel(xlsx_path, index=False)
+        paths['xlsx'] = xlsx_path
+        print(f"[agg] Wrote XLSX: {xlsx_path}")
+    except Exception as e:
+        print(f"[agg] XLSX write failed: {e}")
+    paths['csv'] = csv_path
+    # Optionally write DOCX (can be very slow for large tables)
+    if not skip_docx and len(df) <= max_docx_rows:
+        try:
+            from docx import Document  # lazy import
+            docx_path = os.path.join(out_dir, base + '.docx')
+            doc = Document()
+            table = doc.add_table(rows=len(df)+1, cols=len(df.columns))
+            for j, col in enumerate(df.columns):
+                table.cell(0,j).text = col
+            for i, row in enumerate(df.itertuples(index=False), start=1):
+                for j, val in enumerate(row):
+                    table.cell(i,j).text = '' if pd.isna(val) else str(val)
+            doc.save(docx_path)
+            paths['docx'] = docx_path
+            print(f"[agg] Wrote DOCX: {docx_path}")
+        except Exception as e:
+            print(f"[agg] DOCX write skipped/failed: {e}")
+    else:
+        reason = 'skip flag' if skip_docx else f"row count {len(df)} > limit {max_docx_rows}"
+        print(f"[agg] Skipping DOCX generation due to {reason}.")
+    return paths
 
 
 def compute_signature(secret: str, payload: bytes) -> str:
@@ -75,12 +92,14 @@ def main():
     if not csv_files:
         raise SystemExit(f"No chunk CSV files found under {chunks_dir} for base {base}")
 
+    print(f"[agg] Found {len(csv_files)} chunk CSV files to load")
     frames: List[pd.DataFrame] = []
-    for f in csv_files:
+    for idx, f in enumerate(csv_files, start=1):
         try:
             df = pd.read_csv(f)
             frames.append(df)
-            print(f"[agg] Loaded {f} -> {len(df)} rows")
+            if idx % 25 == 0 or idx == len(csv_files):
+                print(f"[agg] Loaded {idx}/{len(csv_files)} files; last {os.path.basename(f)} -> {len(df)} rows")
         except Exception as e:
             print(f"[agg] Failed to read {f}: {e}")
     if not frames:
@@ -100,7 +119,13 @@ def main():
     print(f"[agg] Aggregated rows: {before} -> {after} (deduped)")
 
     out_dir = os.path.join('outputs')
-    paths = save_outputs(df_all, base, out_dir)
+    # DOCX controls via env
+    skip_docx = (os.getenv('AGG_SKIP_DOCX', '').strip().lower() in ('1','true','yes'))
+    try:
+        max_docx_rows = int(os.getenv('AGG_MAX_DOCX_ROWS', '3000') or '3000')
+    except Exception:
+        max_docx_rows = 3000
+    paths = save_outputs(df_all, base, out_dir, skip_docx=skip_docx, max_docx_rows=max_docx_rows)
 
     summary = {
         'status': 'success',

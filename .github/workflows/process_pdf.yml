@@ -187,6 +187,8 @@ jobs:
           RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url || 'https://search.riskcontrolnigeria.com/api/github/upload-results' }}
           RESULT_UPLOAD_TOKEN: ${{ secrets.RESULT_UPLOAD_TOKEN }}
           DOC_ID: ${{ github.event.client_payload.doc_id }}
+          AGG_SKIP_DOCX: ${{ github.event.client_payload.agg_skip_docx || 'true' }}
+          AGG_MAX_DOCX_ROWS: ${{ github.event.client_payload.agg_max_docx_rows || 3000 }}
         run: |
           python scripts/aggregate_results.py
       - name: Upload final artifacts
