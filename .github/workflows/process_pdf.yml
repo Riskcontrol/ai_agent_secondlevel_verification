@@ -126,6 +126,59 @@ jobs:
         with:
           path: chunks
           merge-multiple: true
+      - name: Preflight: list chunk CSVs
+        env:
+          ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
+        run: |
+          set -euo pipefail
+          base="$(basename "${ORIGINAL_FILENAME:-document.pdf}")"
+          base="${base%.*}"
+          echo "[preflight] Base filename: $base"
+          # Count CSVs matching the aggregator's pattern
+          count=$(find chunks -type f -name "${base}-p*.csv" | wc -l | tr -d ' ')
+          echo "[preflight] CSV chunk files found: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "[preflight] No chunk CSV files found under ./chunks for base ${base}. Failing fast."
+            # Show a quick tree for debugging
+            find chunks -maxdepth 2 -type f | head -n 50 || true
+            exit 1
+          fi
+          echo "[preflight] Sample of discovered CSVs:"
+          find chunks -type f -name "${base}-p*.csv" | sort | head -n 20
+      - name: Preflight: connectivity check (5s timeout)
+        env:
+          RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url || 'https://search.riskcontrolnigeria.com/api/github/upload-results' }}
+          RESULT_UPLOAD_TOKEN: ${{ secrets.RESULT_UPLOAD_TOKEN }}
+          CALLBACK_URL: ${{ github.event.client_payload.callback_url || 'https://search.riskcontrolnigeria.com/api/github/callback' }}
+        run: |
+          set -euo pipefail
+          # Helper to run a short POST and only fail on connection errors/timeouts
+          check_post() {
+            local url="$1"; shift
+            local extra_headers=("$@")
+            echo "[preflight] Checking POST connectivity: ${url}"
+            # Any HTTP code is fine; only a curl transport error should fail
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST -m 5 --connect-timeout 5 \
+                   -H "Content-Type: application/json" "${extra_headers[@]}" \
+                   -d '{"preflight":true,"source":"github-actions"}' "$url" || echo "curl_error")
+            if [ "$code" = "curl_error" ]; then
+              echo "[preflight] Connection to ${url} failed (timeout or network error within 5s). Failing fast."
+              exit 1
+            fi
+            echo "[preflight] ${url} responded HTTP ${code} (any code OK for reachability)."
+          }
+          # Upload endpoint (include Authorization header if token is set)
+          if [ -n "${RESULT_UPLOAD_URL:-}" ]; then
+            if [ -n "${RESULT_UPLOAD_TOKEN:-}" ]; then
+              check_post "${RESULT_UPLOAD_URL}" -H "Authorization: Bearer ${RESULT_UPLOAD_TOKEN}"
+            else
+              check_post "${RESULT_UPLOAD_URL}"
+            fi
+          fi
+          # Callback endpoint
+          if [ -n "${CALLBACK_URL:-}" ]; then
+            check_post "${CALLBACK_URL}"
+          fi
       - name: Aggregate and upload
         env:
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
