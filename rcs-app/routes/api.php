@@ -11,6 +11,10 @@ Route::delete('/documents', [DocumentController::class, 'deleteAll']);
 Route::get('/download/{doc}', [DocumentController::class, 'download'])
     ->name('documents.download')
     ->middleware('signed');
+Route::get('/download-output/{doc}/{type}', [DocumentController::class, 'downloadOutput'])
+    ->name('documents.downloadOutput')
+    ->where('type', 'csv|xlsx')
+    ->middleware('signed');
 
 Route::post('/github/callback', [GithubController::class, 'callback'])->name('github.callback');
 Route::post('/github/upload-results', [GithubController::class, 'uploadResults'])->name('github.uploadResults');

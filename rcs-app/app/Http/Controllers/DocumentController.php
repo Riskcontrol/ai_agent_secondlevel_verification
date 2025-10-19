@@ -67,9 +67,37 @@ class DocumentController extends Controller
         return response()->file($full, ['Content-Type' => 'application/pdf']);
     }
 
+    public function downloadOutput(Request $req, Document $doc, string $type)
+    {
+        if (!$req->hasValidSignature()) abort(401);
+        $url = $type === 'csv' ? $doc->csv_url : $doc->xlsx_url;
+        if (!$url) abort(404);
+        // Convert public URL back to storage path
+        $publicPrefix = Storage::disk('public')->url('');
+        if (!str_starts_with($url, $publicPrefix)) abort(404);
+        $rel = ltrim(substr($url, strlen($publicPrefix)), '/');
+        $full = Storage::disk('public')->path($rel);
+        if (!file_exists($full)) abort(404);
+        $filename = $doc->filename;
+        $base = pathinfo($filename, PATHINFO_FILENAME);
+        $downloadName = $base . '.' . $type;
+        $mime = $type === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        return response()->download($full, $downloadName, [
+            'Content-Type' => $mime,
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function index()
     {
-        return Document::latest()->get();
+        $docs = Document::latest()->get();
+        // Attach signed download links for CSV/XLSX if present
+        $docs->transform(function($d){
+            $d->csv_download = $d->csv_url ? URL::temporarySignedRoute('documents.downloadOutput', now()->addHours(12), ['doc' => $d->id, 'type' => 'csv']) : null;
+            $d->xlsx_download = $d->xlsx_url ? URL::temporarySignedRoute('documents.downloadOutput', now()->addHours(12), ['doc' => $d->id, 'type' => 'xlsx']) : null;
+            return $d;
+        });
+        return $docs;
     }
 
     public function deleteAll()

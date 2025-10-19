@@ -83,8 +83,8 @@ function renderDocs(list){
       td(d.filename),
       td(d.session||''),
       td(d.status),
-      tdLink(d.csv_url),
-      tdLink(d.xlsx_url),
+      tdLink(d.csv_download, 'csv'),
+      tdLink(d.xlsx_download, 'xlsx'),
       td(new Date(d.created_at).toLocaleString())
     )
     tbody.appendChild(tr)
@@ -112,8 +112,15 @@ function renderResults(rows){
 }
 
 function td(v){ const d=document.createElement('td'); d.textContent=v??''; d.className='p-2 border-b'; return d }
-function tdLink(url){
+function tdLink(url, format){
   const d=document.createElement('td'); d.className='p-2 border-b'
-  if(url){ const a=document.createElement('a'); a.href=url; a.target='_blank'; a.className='text-lime-700 underline'; a.textContent='Download'; d.appendChild(a) }
+  if(url){
+    const a=document.createElement('a');
+    a.href=url;
+    a.className='text-lime-700 underline';
+    a.textContent = 'Download';
+    a.setAttribute('download', ''); // hint browser to download
+    d.appendChild(a)
+  }
   return d
 }
