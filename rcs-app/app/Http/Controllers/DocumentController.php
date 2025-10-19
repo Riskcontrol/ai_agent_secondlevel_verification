@@ -13,7 +13,12 @@ class DocumentController extends Controller
 {
     public function upload(Request $req)
     {
-        $req->validate(['file' => 'required|mimes:pdf|max:30000', 'session' => 'nullable|string']);
+        $req->validate([
+            'file' => 'required|mimes:pdf|max:30000',
+            'session' => 'nullable|string',
+            'start_page' => 'nullable|integer|min:1',
+            'end_page' => 'nullable|integer|min:1',
+        ]);
         $file = $req->file('file');
         $path = $file->store('convocation', 'public');
 
@@ -29,17 +34,25 @@ class DocumentController extends Controller
 
         $pat = config('services.github.pat');
         if (!empty($pat)) {
+            $payload = [
+                'source_url' => $sourceUrl,
+                'original_filename' => $file->getClientOriginalName(),
+                'session' => $doc->session,
+                'callback_url' => route('github.callback'),
+                'result_upload_url' => route('github.uploadResults'),
+                'doc_id' => (string)$doc->id,
+            ];
+            // Forward optional page range to workflow (agent.py runner will read PAGE_START/PAGE_END)
+            if ($req->filled('start_page')) {
+                $payload['page_start'] = (int)$req->input('start_page');
+            }
+            if ($req->filled('end_page')) {
+                $payload['page_end'] = (int)$req->input('end_page');
+            }
             Http::withToken($pat)
                 ->post('https://api.github.com/repos/Riskcontrol/ai_agent_secondlevel_verification/dispatches', [
                     'event_type' => 'process_pdf',
-                    'client_payload' => [
-                        'source_url' => $sourceUrl,
-                        'original_filename' => $file->getClientOriginalName(),
-                        'session' => $doc->session,
-                        'callback_url' => route('github.callback'),
-                        'result_upload_url' => route('github.uploadResults'),
-                        'doc_id' => (string)$doc->id,
-                    ]
+                    'client_payload' => $payload
                 ]);
         }
 

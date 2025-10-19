@@ -20,6 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const fd = new FormData()
     fd.append('file', f)
     if ($('#session')?.value) fd.append('session', $('#session').value)
+    const sp = $('#start_page')?.value?.trim(); if (sp) fd.append('start_page', sp)
+    const ep = $('#end_page')?.value?.trim(); if (ep) fd.append('end_page', ep)
 
     const msg = $('#uploadMsg'); if (msg) msg.textContent = 'Uploading...'
     try {
@@ -83,7 +85,6 @@ function renderDocs(list){
       td(d.status),
       tdLink(d.csv_url),
       tdLink(d.xlsx_url),
-      tdLink(d.docx_url),
       td(new Date(d.created_at).toLocaleString())
     )
     tbody.appendChild(tr)

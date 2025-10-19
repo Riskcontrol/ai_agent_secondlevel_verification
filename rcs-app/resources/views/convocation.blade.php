@@ -34,6 +34,16 @@
                     <label for="session" class="font-medium">Session (optional)</label>
                     <input id="session" name="session" type="text" placeholder="e.g. 2021/2022" class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-lime-500" />
                 </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div class="flex flex-col gap-2">
+                        <label for="start_page" class="font-medium">Start Page (optional)</label>
+                        <input id="start_page" name="start_page" type="number" min="1" placeholder="e.g. 1" class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-lime-500" />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <label for="end_page" class="font-medium">End Page (optional)</label>
+                        <input id="end_page" name="end_page" type="number" min="1" placeholder="e.g. 50" class="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-lime-500" />
+                    </div>
+                </div>
                 <button class="inline-flex items-center gap-2 rounded-lg bg-lime-500 text-[#0a2912] font-semibold px-4 py-2" type="submit">Upload & Process</button>
             </form>
             <div id="uploadMsg" class="text-sm text-gray-600 mt-2"></div>
@@ -54,7 +64,6 @@
                             <th class="text-left p-2 border-b">Status</th>
                             <th class="text-left p-2 border-b">CSV</th>
                             <th class="text-left p-2 border-b">XLSX</th>
-                            <th class="text-left p-2 border-b">DOCX</th>
                             <th class="text-left p-2 border-b">Created</th>
                         </tr>
                     </thead>

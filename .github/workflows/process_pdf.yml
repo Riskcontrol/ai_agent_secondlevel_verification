@@ -89,8 +89,9 @@ jobs:
           RESULT_UPLOAD_URL: ''
           RESULT_UPLOAD_TOKEN: ''
           DOC_ID: ${{ github.event.client_payload.doc_id }}
-          PAGE_START: ${{ matrix.start }}
-          PAGE_END: ${{ matrix.end }}
+          # If user provided a specific range, honor it for a single-chunk run; otherwise use matrix chunking
+          PAGE_START: ${{ github.event.client_payload.page_start || matrix.start }}
+          PAGE_END: ${{ github.event.client_payload.page_end || matrix.end }}
           DPI: 300
           MIN_TEXT_WORDS: ${{ github.event.client_payload.min_text_words || 25 }}
           TESSERACT_PSM: ${{ github.event.client_payload.tesseract_psm }}
