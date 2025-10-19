@@ -126,7 +126,7 @@ jobs:
         with:
           path: chunks
           merge-multiple: true
-      - name: Preflight: list chunk CSVs
+      - name: "Preflight: list chunk CSVs"
         env:
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
         run: |
@@ -145,7 +145,7 @@ jobs:
           fi
           echo "[preflight] Sample of discovered CSVs:"
           find chunks -type f -name "${base}-p*.csv" | sort | head -n 20
-      - name: Preflight: connectivity check (5s timeout)
+      - name: "Preflight: connectivity check (5s timeout)"
         env:
           RESULT_UPLOAD_URL: ${{ github.event.client_payload.result_upload_url || 'https://search.riskcontrolnigeria.com/api/github/upload-results' }}
           RESULT_UPLOAD_TOKEN: ${{ secrets.RESULT_UPLOAD_TOKEN }}
