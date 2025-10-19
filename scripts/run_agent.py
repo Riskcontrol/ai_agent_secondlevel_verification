@@ -11,10 +11,19 @@ import requests
 import pandas as pd
 import sys
 from pathlib import Path
+import importlib.util
 
-# Ensure we can import agent.py from the same scripts directory
-sys.path.append(str(Path(__file__).resolve().parent))
-from agent import ConvocationPDFExtractor
+# Robustly load agent.py from the same directory regardless of sys.path
+_scripts_dir = Path(__file__).resolve().parent
+_agent_path = _scripts_dir / 'agent.py'
+if not _agent_path.exists():
+    raise FileNotFoundError(f"agent.py not found at {_agent_path}")
+_spec = importlib.util.spec_from_file_location('agent_local', str(_agent_path))
+if _spec is None or _spec.loader is None:
+    raise ImportError('Could not load agent.py module spec')
+_agent = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_agent)
+ConvocationPDFExtractor = getattr(_agent, 'ConvocationPDFExtractor')
 
 
 def norm_space(s: str) -> str:
