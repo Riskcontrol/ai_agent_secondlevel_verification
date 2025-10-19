@@ -41,7 +41,20 @@ jobs:
           import os, json
           total = int(os.environ['TOTAL'])
           size = int(os.environ.get('SIZE','10'))
-          chunks = [{'start': i+1, 'end': min(total, i+size)} for i in range(0,total,size)]
+          single = (os.environ.get('SINGLE_CHUNK','true').lower() in ('1','true','yes'))
+          # Optional page range from payload
+          pstart_env = os.environ.get('PAGE_START','').strip()
+          pend_env = os.environ.get('PAGE_END','').strip()
+          pstart = int(pstart_env) if pstart_env else 1
+          pend = int(pend_env) if pend_env else total
+          pstart = max(1, pstart)
+          pend = min(total, pend)
+          if pstart > pend:
+              pstart, pend = 1, total
+          if single:
+              chunks = [{'start': pstart, 'end': pend}]
+          else:
+              chunks = [{'start': i+1, 'end': min(pend, i+size)} for i in range(pstart-1, pend, size)]
           out = json.dumps(chunks)
           print(out)
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
@@ -50,13 +63,15 @@ jobs:
         env:
           TOTAL: ${{ steps.probe.outputs.total_pages }}
           SIZE: ${{ github.event.client_payload.chunk_size || 10 }}
+          SINGLE_CHUNK: ${{ github.event.client_payload.single_chunk || 'true' }}
+          PAGE_START: ${{ github.event.client_payload.page_start }}
+          PAGE_END: ${{ github.event.client_payload.page_end }}
 
   extract:
     needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
-      fail-fast: false
       matrix:
         include: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
@@ -137,6 +152,7 @@ jobs:
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
         run: |
           set -euo pipefail
+          echo "[preflight] SINGLE_CHUNK=${{ github.event.client_payload.single_chunk || 'true' }}"
           base="$(basename "${ORIGINAL_FILENAME:-document.pdf}")"
           base="${base%.*}"
           echo "[preflight] Base filename: $base"
