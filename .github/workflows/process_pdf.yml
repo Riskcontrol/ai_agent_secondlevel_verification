@@ -71,9 +71,6 @@ jobs:
     needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 300
-    strategy:
-      matrix:
-        include: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -94,7 +91,7 @@ jobs:
         with:
           name: source-pdf
           path: .
-      - name: Extract chunk ${{ matrix.start }}-${{ matrix.end }} (agent)
+      - name: Extract (agent)
         env:
           SOURCE_FILE: source.pdf
           ORIGINAL_FILENAME: ${{ github.event.client_payload.original_filename }}
@@ -105,9 +102,9 @@ jobs:
           RESULT_UPLOAD_URL: ''
           RESULT_UPLOAD_TOKEN: ''
           DOC_ID: ${{ github.event.client_payload.doc_id }}
-          # If user provided a specific range, honor it for a single-chunk run; otherwise use matrix chunking
-          PAGE_START: ${{ github.event.client_payload.page_start || matrix.start }}
-          PAGE_END: ${{ github.event.client_payload.page_end || matrix.end }}
+          # If user provided a specific range, honor it; else extractor will process all pages
+          PAGE_START: ${{ github.event.client_payload.page_start }}
+          PAGE_END: ${{ github.event.client_payload.page_end }}
           DPI: 300
           MIN_TEXT_WORDS: ${{ github.event.client_payload.min_text_words || 25 }}
           TESSERACT_PSM: ${{ github.event.client_payload.tesseract_psm }}
@@ -116,15 +113,17 @@ jobs:
           # Run the Gemini-based agent extractor; it will create outputs/<base>.csv|xlsx
           python scripts/run_agent.py
           mkdir -p chunks
-          # Move and suffix per-chunk outputs to avoid collisions
+          # Move and suffix outputs with a page range for compatibility with aggregator
           base="$(basename "${ORIGINAL_FILENAME:-document.pdf}")"; base="${base%.*}"
+          start_label="${PAGE_START:-1}"
+          end_label="${PAGE_END:-end}"
           for f in outputs/${base}.*; do
-            ext="${f##*.}"; mv "$f" "chunks/${base}-p${{ matrix.start }}-${{ matrix.end }}.${ext}" || true
+            ext="${f##*.}"; mv "$f" "chunks/${base}-p${start_label}-${end_label}.${ext}" || true
           done
       - name: Upload chunk artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chunks-${{ matrix.start }}-${{ matrix.end }}
+          name: chunks
           path: chunks/*
 
   aggregate:
