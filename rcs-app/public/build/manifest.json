@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-CzP_leQc.css",
+    "file": "assets/app-BZMLu2EG.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "names": [
@@ -14,7 +14,7 @@
     "isEntry": true
   },
   "resources/js/convocation.js": {
-    "file": "assets/convocation-bpAzXN3z.js",
+    "file": "assets/convocation-ClgZ56Ld.js",
     "name": "convocation",
     "src": "resources/js/convocation.js",
     "isEntry": true

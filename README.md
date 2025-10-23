@@ -57,7 +57,7 @@ Required repo secrets:
 
 Important app settings:
 - Set `APP_URL` to your live domain (e.g., `https://search.riskcontrolnigeria.com`).
-- We force HTTPS and use `URL::temporarySignedRoute` for downloads. Expiry is set to 24h for reliability.
+- We force HTTPS and use `URL::temporarySignedRoute` for downloads. Expiry is set to 24h for reliability..
 
 Optional knob in client payload:
 - `chunk_size` (int): pages per chunk. If omitted, defaults to 10.
