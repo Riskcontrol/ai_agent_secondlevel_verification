@@ -19,12 +19,19 @@ class GithubController extends Controller
         $doc = Document::where('filename', $payload['filename'] ?? '')->latest()->first();
         if (!$doc) return response()->noContent();
 
-        $doc->update([
-            'status' => 'complete',
-            'csv_url' => $payload['files']['csv'] ?? $doc->csv_url,
-            'xlsx_url' => $payload['files']['xlsx'] ?? $doc->xlsx_url,
-            'docx_url' => $payload['files']['docx'] ?? $doc->docx_url,
-        ]);
+        // Do not overwrite URLs from the upload-results step with runner-local paths like "outputs/*.csv".
+        // Only mark status complete here and (optionally) set URLs if they are absolute http(s) links and current fields are empty.
+        $doc->status = 'complete';
+        $files = $payload['files'] ?? [];
+        $csv = $files['csv'] ?? null;
+        $xlsx = $files['xlsx'] ?? null;
+        if (!$doc->csv_url && is_string($csv) && preg_match('/^https?:\/\//i', $csv)) {
+            $doc->csv_url = $csv;
+        }
+        if (!$doc->xlsx_url && is_string($xlsx) && preg_match('/^https?:\/\//i', $xlsx)) {
+            $doc->xlsx_url = $xlsx;
+        }
+        $doc->save();
 
         if (!empty($payload['rows']) && is_array($payload['rows'])) {
             foreach ($payload['rows'] as $r) {
